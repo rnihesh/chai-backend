@@ -4,6 +4,7 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 const generateAccessAndRefreshTokens = async (userId) => {
   try {
@@ -158,8 +159,8 @@ const logoutUser = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(
     req.user._id,
     {
-      $set: {
-        refreshToken: undefined,
+      $unset: {
+        refreshToken: 1, // this removes the field from the document
       },
     },
     {
@@ -227,8 +228,17 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
 const changeCurrentPassword = asyncHandler(async (req, res) => {
   const { oldPassword, newPassword } = req.body;
+  if(!oldPassword || !newPassword){
+    throw new ApiError(400, "Both passwords are required")
+  }
 
   const user = await User.findById(req.user?._id);
+  if(!user){
+    throw new ApiError(404, "user not found");
+  }
+  if (!user.password) {
+    throw new ApiError(500, "User password is missing in the database");
+  } 
   const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
   if (!isPasswordCorrect) {
     throw new ApiError(400, "Invalid old password");
@@ -236,7 +246,7 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 
   user.password = newPassword;
   await user.save({ validateBeforeSave: false });
-
+ 
   return res
     .status(200)
     .json(new ApiResponse(200, {}, "Password changed successfully"));
@@ -340,34 +350,34 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
     },
     {
       $lookup: {
-        from: "subcription",
+        from: "subscription",
         localField: "_id",
         foreignField: "channel",
-        as: "subcribers",
+        as: "subscribers",
       },
     },
     {
       $lookup: {
-        from: "subcription",
+        from: "subscription",
         localField: "_id",
-        foreignField: "subcriber",
-        as: "subcribedTo",
+        foreignField: "subscriber",
+        as: "subscribedTo",
       },
-    },
+    }, 
     {
       $addFields: {
-        subcribersCount: {
-          $size: "$subcribers",
+        subscribersCount: {
+          $size: "$subscribers",
         },
-        channelsSubcribedToCount: {
-          $size: "$subcribedTo",
+        channelsSubscribedToCount: {
+          $size: "$subscribedTo",
         },
-        isSubcribed: {
+        isSubscribed: {
           $cond: {
-            id: { $in: [req.user?._id, "$subcribers.subcriber"] },
+            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
             then: true,
             else: false,
-          },
+          }, 
         },
       },
     },
@@ -375,9 +385,9 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
       $project: {
         fullName: 1,
         username: 1,
-        subcribersCount: 1,
-        channelsSubcribedToCount: 1,
-        isSubcribed: 1,
+        subscribersCount: 1,
+        channelsSubscribedToCount: 1,
+        isSubscribed: 1,
         avatar: 1,
         coverImage: 1,
         email: 1,
@@ -437,7 +447,7 @@ const getWatchHistory = asyncHandler(async (req, res) => {
         ],
       },
     },
-  ]);
+  ]); 
 
   return res
     .status(200)
